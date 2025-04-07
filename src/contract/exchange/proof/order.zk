@@ -1,0 +1,98 @@
+# The k parameter defining the number of rows used in our circuit (2^k)
+k = 11;
+field = "pallas";
+
+# The constants we define for our circuit
+constant "Order" {
+    EcFixedPointShort VALUE_COMMIT_VALUE,
+    EcFixedPoint VALUE_COMMIT_RANDOM,
+    EcFixedPointBase NULLIFIER_K,
+}
+
+witness "Order" {
+    # X coordinate for withdraw public key
+    Base withdraw_public_x,
+    # Y coordinate for withdraw public key
+    Base withdraw_public_y,
+    # The base value for this order
+    Base base_value,
+    # The quote value for this order
+    Base quote_value,
+    # The base token id
+    Base base_token_id,
+    # The quote token id
+    Base quote_token_id,
+    # Timeout duration for execuation of this order
+    Base timeout_duration,
+    # The contract allowed to use this order
+    Base spend_hook,
+    # Data passed from this order to the invoked contract
+    Base user_data,
+    # Unique serial number corresponding to this order bulla
+    Base bulla_blind,
+    # Random blinding factor for the base_value commitment
+    Scalar base_value_blind,
+    # Random blinding factor for the quote_value commitment
+    Scalar quote_value_blind,
+    # Base base token_id blind
+    Base base_token_id_blind,
+    # Base quote token_id blind
+    Base quote_token_id_blind,
+    # Random blinding factor for timeout_duration period
+    Scalar timeout_duration_blind,
+}
+
+# The definition of our circuit
+circuit "Order" {
+    # Poseidon hash of the order
+    bulla = poseidon_hash(
+        withdraw_public_x,
+        withdraw_public_y,
+        base_value,
+        quote_value,
+        base_token_id,
+        quote_token_id,
+        timeout_duration,
+        spend_hook,
+        user_data,
+        bulla_blind,
+    );
+    constrain_instance(bulla);
+
+    # Pedersen commitment for order's base order_value
+    base_vcv = ec_mul_short(base_value, VALUE_COMMIT_VALUE);
+    base_vcr = ec_mul(base_value_blind, VALUE_COMMIT_RANDOM);
+    base_order_value_commit = ec_add(base_vcv, base_vcr);
+    # Since the base_value commit is a curve point, we fetch its coordinates
+    # and constrain them:
+    constrain_instance(ec_get_x(base_order_value_commit));
+    constrain_instance(ec_get_y(base_order_value_commit));
+
+    # Pedersen commitment for order's quote_value
+    quote_vcv = ec_mul_short(quote_value, VALUE_COMMIT_VALUE);
+    quote_vcr = ec_mul(quote_value_blind, VALUE_COMMIT_RANDOM);
+    quote_order_value_commit = ec_add(quote_vcv, quote_vcr);
+    # Since the quote_value commit is a curve point, we fetch its coordinates
+    # and constrain them:
+    constrain_instance(ec_get_x(quote_order_value_commit));
+    constrain_instance(ec_get_y(quote_order_value_commit));
+ 
+    # Commitment for order's base_token_id ID. We do a poseidon hash since it's
+    # cheaper than EC operations and doesn't need the homomorphic prop.
+    base_order_token_id_commit = poseidon_hash(base_token_id, base_token_id_blind);
+    constrain_instance(base_order_token_id_commit);
+
+    # Commitment for order's quote_token_id ID. We do a poseidon hash since it's
+    # cheaper than EC operations and doesn't need the homomorphic prop.
+    quote_order_token_id_commit = poseidon_hash(quote_token_id, quote_token_id_blind);
+    constrain_instance(quote_order_token_id_commit);
+
+    # Commitment for order's timeout_duration.  We do a poseidon hash since it's
+    # cheaper than EC operations and doesn't need the homomorphic prop.
+    timeout_duration_vcv = ec_mul_short(timeout_duration, VALUE_COMMIT_VALUE);
+    timeout_duration_vcr = ec_mul(timeout_duration_blind, VALUE_COMMIT_RANDOM);
+    timeout_duration_commit = ec_add(timeout_duration_vcv, timeout_duration_vcr);
+    constrain_instance(ec_get_x(timeout_duration_commit));
+    constrain_instance(ec_get_y(timeout_duration_commit));
+    # At this point we've enforced all of our public inputs.
+}

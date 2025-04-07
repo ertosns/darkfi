@@ -189,6 +189,7 @@ impl TransferCallBuilder {
     }
 }
 
+#[derive(Clone)]
 pub struct TransferCallSecrets {
     /// The ZK proofs created in this builder
     pub proofs: Vec<Proof>,

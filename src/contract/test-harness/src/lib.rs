@@ -82,6 +82,9 @@ mod dao_vote;
 /// `Dao::Exec` functionality
 mod dao_exec;
 
+/// `Exchange::OrderMatch` functionality
+mod order_match;
+
 /// Initialize the logging mechanism
 pub fn init_logger() {
     let mut cfg = simplelog::ConfigBuilder::new();

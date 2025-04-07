@@ -46,6 +46,7 @@ members = [
     "src/contract/test-harness",
     "src/contract/money",
     "src/contract/dao",
+    "src/contract/exchange",
     "src/contract/deployooor",
 
     "example/dchat/dchatd",

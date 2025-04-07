@@ -51,6 +51,12 @@ lazy_static! {
     /// `EJs7oEjKkvCeEVCmpRsd6fEoTGCFJ7WKUBfmAjwaegN`
     pub static ref DEPLOYOOOR_CONTRACT_ID: ContractId =
         ContractId::from(poseidon_hash([*CONTRACT_ID_PREFIX, pallas::Base::zero(), pallas::Base::from(2)]));
+
+    /// Contract ID for the Exchange contract
+    ///
+    /// `21LYoifepcySKhyDA1vzxRDWGHyDizPQ8f11zSqhep7t`
+    pub static ref EXCHANGE_CONTRACT_ID: ContractId =
+        ContractId::from(poseidon_hash([*CONTRACT_ID_PREFIX, pallas::Base::zero(), pallas::Base::from(3)]));
 }
 
 /// ContractId represents an on-chain identifier for a certain smart contract.

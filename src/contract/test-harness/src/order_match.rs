@@ -187,7 +187,7 @@ impl TestHarness {
 
         tx.signatures.push(order_sigs);
         assert!(tx.signatures.len() == 2);
-        assert!(spent_coins.len() > 0);
+        assert!(!spent_coins.is_empty());
         // which holder should be charged for fees?lp, or exchange.
         let (fee_call, fee_proofs, fee_secrets, spent_fee_coins, fee_call_params) =
             self.append_fee_call(lp, tx, block_height, &spent_coins).await?;

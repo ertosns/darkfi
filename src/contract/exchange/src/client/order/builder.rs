@@ -67,7 +67,7 @@ impl OrderCallBuilder {
         let mut base_output_blinds = vec![];
         let mut quote_output_blinds = vec![];
 
-        for (_, input) in self.inputs.iter().enumerate() {
+        for input in self.inputs.iter() {
             for value_blind in input.transfer_secrets.input_value_blinds.clone() {
                 base_input_blinds.push(value_blind);
             }

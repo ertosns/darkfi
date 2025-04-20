@@ -136,8 +136,8 @@ fn exchange_swap() -> Result<()> {
         let alice_base_value = alice_funds[0].clone().note.value;
         let alice_quote_value = bob_funds[0].clone().note.value;
         // bob base/quote
-        let bob_base_value = alice_quote_value.clone();
-        let bob_quote_value = alice_base_value.clone();
+        let bob_base_value = alice_quote_value;
+        let bob_quote_value = alice_base_value;
 
         info!(target: "exchange", "==========================");
         info!(target: "exchange", " Alice make order match tx");
@@ -145,13 +145,13 @@ fn exchange_swap() -> Result<()> {
         // (3) Alice mint and order, and send his funds to the exchange
         let (tx, (xfer_params, order_params, fee_params), _spent_coins) = th
             .order_match(
-                alice_base_value.clone(),
-                alice_quote_value.clone(),
+                alice_base_value,
+                alice_quote_value,
                 &Holder::Alice,
                 &Holder::Charlie,
                 &alice_funds,
-                alice_token_id.clone(),
-                bob_token_id.clone(),
+                alice_token_id,
+                bob_token_id,
                 100, //timeout duration
                 current_block_height,
             )

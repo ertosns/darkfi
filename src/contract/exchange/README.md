@@ -1,6 +1,6 @@
-# order match contract
+# Order match contract
 
-limit order match contract
+Limit order match contract
 
 ```
 pub enum ExchangeFunction {
@@ -70,30 +70,30 @@ circuit "Order" {
 
 ```
 
-## swap
+## Swap
 
-once a match is found in the order book, the exchange perform the swap, having a valid swap is a proof that there are a matching orders.
+Once a match is found in the order book, the exchange perform the swap, having a valid swap is a proof that there are a matching orders.
 
+## Overview on liquidity ownership
 
-## overview on liquidity ownership
-
-the following is a trace of the liquidity ownership of the current implementation see `./tests/exchange_swap.rs`:
-- LP mint and order, and transfer liquidity to exchange.
-- find a matching order
-- perform full swap
-- transfer the liquidity back to the initial LP
+The following is a trace of the liquidity ownership of the current implementation see `./tests/exchange_swap.rs`:
+- LP mints an order, and transfers liquidity to exchange.
+- Find a matching order
+- Perform full swap
+- Transfer the liquidity back to the initial LP
 
 ## TODO Refund call (prevent the exchange from running away with the funds)
 
-create transfer call similar to `Money::Transfer` with minor difference that allow burning coin in the exchange possession with spend_hook set to exchange_conract_id, and mint a LP's coin with None/Money contract id set to it's spend_hook.
+Refund call is a transfer from exchange to the LP. It creates a transfer call similar to `Money::Transfer` with minor difference that allow burning coin in the exchange possession with spend_hook set to exchange_conract_id, and mint a LP's coin with None/Money contract id set to it's spend_hook.
+
 
 ## TODO withdraw call
 
-withdraw call transfer funds in exchange possession with limited use inside the Exchange contract back to the liquidity provider in case of:
-- order time out
-- cancel a transaction
+Withdraw call is a transfer from the LP to itself. It transfers funds in exchange possession with limited use inside the Exchange contract back to the liquidity provider, using $pk^{withdraw}$ in case of:
+- Order time out
+- Cancel a transaction
 
 
 ## TODO spread difference
 
-the spread should be added to the book, commit to the spread difference value, it will be spent along with the fee transaction upon swap success.
+The spread should be added to the book, commit to the spread difference value, it will be spent along with the fee transaction upon swap success.

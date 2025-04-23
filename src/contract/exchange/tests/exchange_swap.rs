@@ -207,9 +207,9 @@ fn exchange_swap() -> Result<()> {
         }
         th.assert_trees(&HOLDERS);
 
-        info!(target: "money", "[Alice, Bob] ================");
-        info!(target: "money", "[Alice, Bob] Building OtcSwap");
-        info!(target: "money", "[Alice, Bob] ================");
+        info!(target: "exchange", "[Charlie, Charlie] ================");
+        info!(target: "exchange", "[Charlie, Charlie] Building OtcSwap");
+        info!(target: "exchange", "[Charlie, Charlie] ================");
 
         let alice_owncoins = th.holders.get(&Holder::Alice).unwrap().unspent_money_coins.clone();
         let mut bob_owncoins = th.holders.get(&Holder::Bob).unwrap().unspent_money_coins.clone();
@@ -218,7 +218,6 @@ fn exchange_swap() -> Result<()> {
         assert!(charlie_owncoins.len() == 2);
         assert!(charlie_owncoins[0].note.token_id == alice_token_id);
         assert!(charlie_owncoins[1].note.token_id == bob_token_id);
-        th.assert_trees(&HOLDERS);
 
         let alice_coin_idx = charlie_owncoins.len() - 2;
         let bob_coin_idx = charlie_owncoins.len() - 1;
@@ -234,9 +233,9 @@ fn exchange_swap() -> Result<()> {
             .await?;
 
         for holder in &HOLDERS {
-            info!(target: "money", "[{holder:?}] ==========================");
-            info!(target: "money", "[{holder:?}] Executing AliceBob swap tx");
-            info!(target: "money", "[{holder:?}] ==========================");
+            info!(target: "exchange", "[{holder:?}] =================================");
+            info!(target: "exchange", "[{holder:?}] Executing Charlie2Charlie swap tx");
+            info!(target: "exchange", "[{holder:?}] =================================");
             th.execute_otc_swap_tx(
                 holder,
                 otc_swap_tx.clone(),
@@ -255,9 +254,9 @@ fn exchange_swap() -> Result<()> {
         assert!(charlie_owncoins[1].note.token_id == alice_token_id);
         th.assert_trees(&HOLDERS);
 
-        info!(target: "money", "[Alice] ============================================================");
-        info!(target: "money", "[Alice] charlie now need to send alice's share of the swap to alice ");
-        info!(target: "money", "[Alice] ============================================================");
+        info!(target: "exchange", "[Alice] ============================================================");
+        info!(target: "exchange", "[Alice] charlie now need to send alice's share of the swap to alice ");
+        info!(target: "exchange", "[Alice] ============================================================");
         let alice_token_idx = charlie_owncoins.len() - 2;
         let charlie2alice_token_id = charlie_owncoins[alice_token_idx].note.token_id;
         // (6) exchange sends B token to Alice
@@ -298,9 +297,9 @@ fn exchange_swap() -> Result<()> {
         assert!(alice_owncoins[1].note.value == BOB_INITIAL);
         assert!(alice_owncoins[1].note.token_id == bob_token_id);
 
-        info!(target: "money", "[Bob] =======================================================");
-        info!(target: "money", "[Bob] Charlie now need to send bob's share of teh swap to bob");
-        info!(target: "money", "[Bob] =======================================================");
+        info!(target: "exchange", "[Bob] =======================================================");
+        info!(target: "exchange", "[Bob] Charlie now need to send bob's share of teh swap to bob");
+        info!(target: "exchange", "[Bob] =======================================================");
 
         let bob_token_idx = charlie_owncoins.len() - 1;
         let charlie2bob_token_id = charlie_owncoins[bob_token_idx].note.token_id;

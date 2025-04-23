@@ -100,7 +100,7 @@ impl OrderCallBuilder {
             let quote_value_blind = Blind::random(&mut OsRng);
             quote_output_blinds.push(quote_value_blind);
 
-            debug!(target: "contract::money::client::transfer::build", "Creating Order mint proof for output {}", i);
+            debug!(target: "contract::exchange::client::order::build", "Creating Order mint proof for output {}", i);
             let (proof, public_inputs) = create_order_mint_proof(
                 &self.order_zkbin,
                 &self.order_pk,

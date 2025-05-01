@@ -17,22 +17,17 @@
  */
 
 use darkfi_sdk::{
-    crypto::{pasta_prelude::Field, smt::EMPTY_NODES_FP, ContractId, MerkleNode, MerkleTree},
+    crypto::{ContractId},
     dark_tree::DarkLeaf,
     error::ContractResult,
     msg,
-    pasta::pallas,
     wasm, ContractCall,
 };
-use darkfi_serial::{deserialize, serialize, Encodable, WriteExt};
+use darkfi_serial::{deserialize, serialize, Encodable};
 
 use crate::{
-    error::OrderError, model::OrderMatchUpdate, ExchangeFunction, EMPTY_COINS_TREE_ROOT,
-    EXCHANGE_CONTRACT_COINS_TREE, EXCHANGE_CONTRACT_COIN_MERKLE_TREE,
-    EXCHANGE_CONTRACT_COIN_ROOTS_TREE, EXCHANGE_CONTRACT_DB_VERSION, EXCHANGE_CONTRACT_INFO_TREE,
-    EXCHANGE_CONTRACT_LATEST_COIN_ROOT, EXCHANGE_CONTRACT_LATEST_NULLIFIER_ROOT,
-    EXCHANGE_CONTRACT_NULLIFIERS_TREE, EXCHANGE_CONTRACT_NULLIFIER_ROOTS_TREE,
-    EXCHANGE_CONTRACT_ORDER_MATCH_TREE, EXCHANGE_CONTRACT_TOKEN_FREEZE_TREE,
+    error::OrderError, model::OrderMatchUpdate, ExchangeFunction,
+    EXCHANGE_CONTRACT_ORDER_MATCH_TREE
 };
 
 mod order;
@@ -56,16 +51,11 @@ fn init_contract(cid: ContractId, _ix: &[u8]) -> ContractResult {
     // respective db functions. The special `zkas db` operations exist in
     // order to be able to verify the circuits being bundled and enforcing
     // a specific tree inside sled, and also creation of VerifyingKey.
-    let burn_v1_bincode = include_bytes!("../../money/proof/burn_v1.zk.bin");
-    let mint_v1_bincode = include_bytes!("../../money/proof/mint_v1.zk.bin");
-    let fee_v1_bincode = include_bytes!("../../money/proof/fee_v1.zk.bin");
     let order_bincode = include_bytes!("../proof/order.zk.bin");
 
     // For that, we use `wasm::db::zkas_wasm::db::db_set` and pass in the bincode.
     wasm::db::zkas_db_set(&order_bincode[..])?;
-    wasm::db::zkas_db_set(&fee_v1_bincode[..])?;
-    wasm::db::zkas_db_set(&mint_v1_bincode[..])?;
-    wasm::db::zkas_db_set(&burn_v1_bincode[..])?;
+
 
     let tx_hash = wasm::util::get_tx_hash()?;
     // The max outputs for a tx in BTC is 2501
@@ -81,90 +71,13 @@ fn init_contract(cid: ContractId, _ix: &[u8]) -> ContractResult {
         return Err(OrderError::RootsValueDataMismatch.into())
     }
 
-    // Set up a database tree to hold Merkle roots of all coin trees
-    // k=root_hash:32, v=(tx_hash:32, call_idx: 1)
-    if wasm::db::db_lookup(cid, EXCHANGE_CONTRACT_COIN_ROOTS_TREE).is_err() {
-        let db_coin_roots = wasm::db::db_init(cid, EXCHANGE_CONTRACT_COIN_ROOTS_TREE)?;
-        wasm::db::db_set(db_coin_roots, &serialize(&EMPTY_COINS_TREE_ROOT), &roots_value_data)?;
-    }
-
-    // Set up a database tree to hold Merkle roots of all nullifier trees
-    // k=root_hash:32, v=[(tx_hash:32, call_idx: 1)]
-    if wasm::db::db_lookup(cid, EXCHANGE_CONTRACT_NULLIFIER_ROOTS_TREE).is_err() {
-        let db_null_roots = wasm::db::db_init(cid, EXCHANGE_CONTRACT_NULLIFIER_ROOTS_TREE)?;
-        wasm::db::db_set(
-            db_null_roots,
-            &serialize(&EMPTY_NODES_FP[0]),
-            &serialize(&vec![roots_value_data]),
-        )?;
-    }
-
-    // Set up a database tree to hold all coins ever seen
-    // k=Coin, v=[]
-    if wasm::db::db_lookup(cid, EXCHANGE_CONTRACT_COINS_TREE).is_err() {
-        wasm::db::db_init(cid, EXCHANGE_CONTRACT_COINS_TREE)?;
-    }
-
-    // Set up a database tree to hold nullifiers of all spent coins
-    // k=Nullifier, v=[]
-    if wasm::db::db_lookup(cid, EXCHANGE_CONTRACT_NULLIFIERS_TREE).is_err() {
-        wasm::db::db_init(cid, EXCHANGE_CONTRACT_NULLIFIERS_TREE)?;
-    }
-
-    // Set up a database tree to hold the set of frozen token mints
-    // k=TokenId, v=[]
-    if wasm::db::db_lookup(cid, EXCHANGE_CONTRACT_TOKEN_FREEZE_TREE).is_err() {
-        wasm::db::db_init(cid, EXCHANGE_CONTRACT_TOKEN_FREEZE_TREE)?;
-    }
-
     // Set up a database tree to hold the fees paid for each block
-    // k=height_bytes, v=fees_paid_bytes
     if wasm::db::db_lookup(cid, EXCHANGE_CONTRACT_ORDER_MATCH_TREE).is_err() {
         let fees_db = wasm::db::db_init(cid, EXCHANGE_CONTRACT_ORDER_MATCH_TREE)?;
         // Initialize the first two accumulators
         wasm::db::db_set(fees_db, &serialize(&0_u32), &serialize(&0_u64))?;
         wasm::db::db_set(fees_db, &serialize(&1_u32), &serialize(&0_u64))?;
     }
-
-    // Set up a database tree for arbitrary data
-    let info_db = match wasm::db::db_lookup(cid, EXCHANGE_CONTRACT_INFO_TREE) {
-        Ok(v) => v,
-        Err(_) => {
-            let info_db = wasm::db::db_init(cid, EXCHANGE_CONTRACT_INFO_TREE)?;
-
-            // Create the incrementalmerkletree for seen coins and initialize
-            // it with a "fake" coin that can be used for dummy inputs.
-            let mut coin_tree = MerkleTree::new(1);
-            coin_tree.append(MerkleNode::from(pallas::Base::ZERO));
-            let mut coin_tree_data = vec![];
-            coin_tree_data.write_u32(0)?;
-            coin_tree.encode(&mut coin_tree_data)?;
-            wasm::db::db_set(info_db, EXCHANGE_CONTRACT_COIN_MERKLE_TREE, &coin_tree_data)?;
-
-            // Initialize coins and nulls latest root field
-            // This will result in exhausted gas so we use a precalculated value:
-            //let root = coin_tree.root(0).unwrap();
-            wasm::db::db_set(
-                info_db,
-                EXCHANGE_CONTRACT_LATEST_COIN_ROOT,
-                &serialize(&EMPTY_COINS_TREE_ROOT),
-            )?;
-            wasm::db::db_set(
-                info_db,
-                EXCHANGE_CONTRACT_LATEST_NULLIFIER_ROOT,
-                &serialize(&EMPTY_NODES_FP[0]),
-            )?;
-
-            info_db
-        }
-    };
-
-    // Update db version
-    wasm::db::db_set(
-        info_db,
-        EXCHANGE_CONTRACT_DB_VERSION,
-        &serialize(&env!("CARGO_PKG_VERSION")),
-    )?;
 
     Ok(())
 }

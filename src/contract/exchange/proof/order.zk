@@ -87,8 +87,7 @@ circuit "Order" {
     quote_order_token_id_commit = poseidon_hash(quote_token_id, quote_token_id_blind);
     constrain_instance(quote_order_token_id_commit);
 
-    # Commitment for order's timeout_duration.  We do a poseidon hash since it's
-    # cheaper than EC operations and doesn't need the homomorphic prop.
+    # Pedersen commitment for the timeout_duration
     timeout_duration_vcv = ec_mul_short(timeout_duration, VALUE_COMMIT_VALUE);
     timeout_duration_vcr = ec_mul(timeout_duration_blind, VALUE_COMMIT_RANDOM);
     timeout_duration_commit = ec_add(timeout_duration_vcv, timeout_duration_vcr);

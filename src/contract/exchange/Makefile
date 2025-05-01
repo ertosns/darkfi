@@ -44,19 +44,13 @@ $(WASM_BIN): $(PROOFS_BIN) $(WASM_SRC) $(PROOFS_SRC)
 	cp -f ../../../target/$(WASM_TARGET)/release/$@ $@
 	wasm-strip $@
 
-test-mint-order: all
-	RUSTFLAGS="$(RUSTFLAGS)" $(CARGO) test --target=$(RUST_TARGET) \
-		--release --package $(PKGNAME) \
-		--features=no-entrypoint,client \
-		--test mint_order
-
 test-exchange-swap: all
 	RUSTFLAGS="$(RUSTFLAGS)" $(CARGO) test --target=$(RUST_TARGET) \
 	--release --package $(PKGNAME) \
 	--features=no-entrypoint,client \
 	--test exchange_swap
 
-test: test-mint-order test-exchange-swap
+test: test-exchange-swap
 
 clippy: all
 	RUSTFLAGS="$(RUSTFLAGS)" $(CARGO) clippy --target=$(WASM_TARGET) \

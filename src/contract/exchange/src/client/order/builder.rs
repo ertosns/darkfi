@@ -74,13 +74,12 @@ impl OrderCallBuilder {
             for signature_secret in input.transfer_secrets.signature_secrets.clone() {
                 signature_secrets.push(signature_secret);
             }
+            //FIXME currently on transfer_inputs.signature_public is used.
+            // anything will be needed in state transition?
             params.inputs.push(Input {
                 transfer_inputs: input.transfer_inputs.clone(),
                 transfer_outputs: input.transfer_outputs.clone(),
             });
-            for proof in input.transfer_secrets.proofs.clone() {
-                proofs.push(proof);
-            }
         }
 
         if self.outputs.is_empty() {

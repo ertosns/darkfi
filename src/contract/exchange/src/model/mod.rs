@@ -145,10 +145,6 @@ pub struct Output {
 
 #[derive(Clone, Debug, SerialEncodable, SerialDecodable)]
 pub struct OrderMatchUpdate {
-    /// Revealed nullifiers
-    pub nullifiers: Vec<Nullifier>,
-    /// Minted coins
-    pub coins: Vec<Coin>,
     /// Minted orders
     pub orders: Vec<OrderAttributes>,
 }

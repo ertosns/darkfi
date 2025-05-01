@@ -37,36 +37,10 @@ use darkfi_sdk::{
         poseidon_hash, FuncId, FuncRef, MerkleNode, PublicKey,
     },
     pasta::pallas,
-    ContractCall,
+    ContractCall, dark_tree::DarkTree,
 };
 use darkfi_serial::{async_trait, AsyncEncodable, SerialDecodable, SerialEncodable};
 use log::debug;
-
-#[derive(Debug, Clone, SerialEncodable, SerialDecodable)]
-pub struct Order {
-    pub withdraw_key: PublicKey,
-    pub base_value: u64,
-    pub quote_value: u64,
-    pub base_token_id: TokenId,
-    pub quote_token_id: TokenId,
-    pub timeout_duration: u64,
-}
-
-impl Order {
-    pub fn to_bulla(&self) -> OrderBulla {
-        let (withdraw_x, withdraw_y) = self.withdraw_key.xy();
-        let bulla = poseidon_hash([
-            withdraw_x,
-            withdraw_y,
-            pallas::Base::from(self.base_value),
-            pallas::Base::from(self.quote_value),
-            self.base_token_id.inner(),
-            self.quote_token_id.inner(),
-            pallas::Base::from(self.timeout_duration),
-        ]);
-        OrderBulla(bulla)
-    }
-}
 
 impl TestHarness {
     /// Create a `Exchange::OrderMatch` transaction.
@@ -82,6 +56,8 @@ impl TestHarness {
         quote_token_id: TokenId,
         timeout_duration: u64,
         block_height: u32,
+        spend_hook: FuncId,
+        user_data: pallas::Base,
     ) -> Result<(
         Transaction,
         (MoneyTransferParamsV1, OrderMatchParams, MoneyFeeParamsV1),
@@ -99,6 +75,7 @@ impl TestHarness {
         for c in owncoins {
             assert!(c.note.token_id == base_token_id);
         }
+
         // Create the transfer call
         let (transfer_params, transfer_secrets, mut spent_coins) = make_transfer_call(
             withdraw_keypair,
@@ -107,49 +84,24 @@ impl TestHarness {
             base_token_id,
             owncoins.to_owned(),
             wallet.money_merkle_tree.clone(),
-            None,
-            None,
+            Some(spend_hook),
+            Some(user_data),
             mint_zkbin.clone(),
             mint_pk.clone(),
             burn_zkbin.clone(),
             burn_pk.clone(),
             false,
         )?;
-
         // Encode the call
         let mut data = vec![MoneyFunction::TransferV1 as u8];
         transfer_params.encode_async(&mut data).await?;
         let call = ContractCall { contract_id: *MONEY_CONTRACT_ID, data: data.clone() };
 
-        // Create the TransactionBuilder containing the `Transfer` call
-        let mut tx_builder = TransactionBuilder::new(
-            ContractCallLeaf { call, proofs: transfer_secrets.clone().proofs },
-            vec![],
-        )?;
-
         ///////////////////////////////
         // append make order call
         ///////////////////////////////
-        let spend_hook: FuncId = FuncRef {
-            contract_id: *EXCHANGE_CONTRACT_ID,
-            func_code: ExchangeFunction::OrderMatch as u8,
-        }
-        .to_func_id();
 
-        let order = Order {
-            withdraw_key: withdraw_public_key,
-            base_value: base_amount,
-            quote_value: quote_amount,
-            base_token_id,
-            quote_token_id,
-            timeout_duration,
-        };
-        let user_data = order.to_bulla();
-
-        //TODO replace charlie with Exchange with OrderBook.
-        //TODO do you actually need transfer_secretss for validation of signature_secrets,
-        // input/output homomorphic encryption validation, in order contract, or it's enough
-        // to be validated in transfer call?
+        //TODO replace charlie with Exchange's OrderBook.
         let (order_params, order_secrets) = make_order_call(
             withdraw_keypair,
             withdraw_public_key,
@@ -162,7 +114,7 @@ impl TestHarness {
             transfer_params.inputs.clone(),
             transfer_params.outputs.clone(),
             spend_hook,
-            user_data.inner(),
+            user_data,
             order_zkbin.clone(),
             order_pk.clone(),
         )?;
@@ -172,13 +124,14 @@ impl TestHarness {
         order_params.encode_async(&mut order_match_data).await?;
         let order_match_call =
             ContractCall { contract_id: *EXCHANGE_CONTRACT_ID, data: order_match_data };
-        tx_builder.append(
+        let contract_call_leaf = ContractCallLeaf { call, proofs: transfer_secrets.clone().proofs };
+        let dark_tree = DarkTree::new(contract_call_leaf, vec![], None, None);
+        let mut tx_builder = TransactionBuilder::new(
             ContractCallLeaf { call: order_match_call, proofs: order_secrets.proofs },
-            vec![],
+            vec![dark_tree],
         )?;
 
         // Now build the actual transaction and sign it with all necessary keys.
-
         let mut tx = tx_builder.build()?;
 
         let transfer_sigs = tx.create_sigs(&transfer_secrets.signature_secrets)?;
@@ -188,13 +141,12 @@ impl TestHarness {
         tx.signatures.push(order_sigs);
         assert!(tx.signatures.len() == 2);
         assert!(!spent_coins.is_empty());
+
         // which holder should be charged for fees?lp, or exchange.
         let (fee_call, fee_proofs, fee_secrets, spent_fee_coins, fee_call_params) =
             self.append_fee_call(lp, tx, block_height, &spent_coins).await?;
-
         // Append the fee call to the transaction
         tx_builder.append(ContractCallLeaf { call: fee_call, proofs: fee_proofs }, vec![])?;
-        //fee_signature_secrets = Some(fee_secrets);
         spent_coins.extend_from_slice(&spent_fee_coins);
         let mut tx = tx_builder.build()?;
         let transfer_sigs = tx.create_sigs(&transfer_secrets.signature_secrets)?;
@@ -204,7 +156,6 @@ impl TestHarness {
         let fee_sigs = tx.create_sigs(&fee_secrets)?;
         tx.signatures.push(fee_sigs);
         assert!(tx.signatures.len() == 3);
-
         Ok((tx, (transfer_params, order_params, fee_call_params), spent_coins))
     }
 
@@ -267,6 +218,7 @@ impl TestHarness {
         //TODO complete execution order_params, fee_params.
         // Handle fee call
         // Process call input to mark any spent coins
+
         let nullifier = fee_params.input.nullifier.inner();
         wallet
             .money_null_smt
@@ -274,6 +226,7 @@ impl TestHarness {
             .expect("smt.insert_batch()");
 
         if append {
+
             if let Some(spent_coin) = wallet
                 .unspent_money_coins
                 .iter()
@@ -284,6 +237,7 @@ impl TestHarness {
                 wallet.unspent_money_coins.retain(|x| x.nullifier() != fee_params.input.nullifier);
                 wallet.spent_money_coins.push(spent_coin.clone());
             }
+
             //TODO should this be on a separate merkle tree?
             // Process call output to find any new OwnCoins
             wallet.money_merkle_tree.append(MerkleNode::from(fee_params.output.coin.inner()));
@@ -302,6 +256,7 @@ impl TestHarness {
                 found_owncoins.push(owncoin);
             };
         }
+
         //TODO implement exchange, store orders
         // append order to orders database.
         Ok(found_owncoins)

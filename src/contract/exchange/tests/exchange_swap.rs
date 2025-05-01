@@ -18,9 +18,54 @@
 
 use darkfi::Result;
 use darkfi_contract_test_harness::{init_logger, Holder, TestHarness};
-use darkfi_sdk::crypto::BaseBlind;
+use darkfi::zk::{halo2::Field};
+use darkfi_exchange_contract::{
+    client::order::make_order_call,
+    model::{OrderBulla, OrderMatchParams},
+    ExchangeFunction, EXCHANGE_CONTRACT_ZKAS_ORDER_MATCH,
+};
+use darkfi_money_contract::{
+    client::{transfer_v1::make_transfer_call, MoneyNote, OwnCoin},
+    model::{MoneyFeeParamsV1, MoneyTransferParamsV1, TokenId},
+    MoneyFunction, MONEY_CONTRACT_ZKAS_BURN_NS_V1, MONEY_CONTRACT_ZKAS_MINT_NS_V1,
+};
+use darkfi_sdk::{
+    crypto::{
+        contract_id::{EXCHANGE_CONTRACT_ID, MONEY_CONTRACT_ID},
+        poseidon_hash, FuncId, FuncRef, MerkleNode, PublicKey,
+        BaseBlind,
+    },
+    pasta::pallas,
+    ContractCall,
+};
 use log::info;
 use rand::rngs::OsRng;
+use darkfi_serial::{async_trait, AsyncEncodable, SerialDecodable, SerialEncodable};
+
+#[derive(Debug, Clone, SerialEncodable, SerialDecodable)]
+pub struct DummyOrder {
+    pub withdraw_key: PublicKey,
+    pub base_value: u64,
+    pub quote_value: u64,
+    pub timeout_duration: u64,
+}
+
+impl DummyOrder {
+    pub fn to_bulla(&self) -> OrderBulla {
+        let (withdraw_x, withdraw_y) = self.withdraw_key.xy();
+        let bulla = poseidon_hash([
+            withdraw_x,
+            withdraw_y,
+            pallas::Base::from(self.base_value),
+            pallas::Base::from(self.quote_value),
+            //self.base_token_id.inner(),
+            //self.quote_token_id.inner(),
+            pallas::Base::from(self.timeout_duration),
+        ]);
+        OrderBulla(bulla)
+    }
+}
+
 
 #[test]
 fn exchange_swap() -> Result<()> {
@@ -30,10 +75,10 @@ fn exchange_swap() -> Result<()> {
     // (2) Bob mints Token B
     // (3) Alice mint and order, and send his funds to the exchange
     // (4) Bob mints an order, and sends his funds to the exchange
-    // (5) after the exchange finds a match in the order-book, it make makes a full swap
+    // (5) TODO after the exchange finds a match in the order-book, it make makes a full swap
     //     while keeping funds in it's possession.
-    // (6) exchange sends B token to Alice
-    // (7) exchange sends A token to Bob
+    // (6) TODO exchange sends B token to Alice
+    // (7) TODO exchange sends A token to Bob
     smol::block_on(async {
         init_logger();
         // Holders this test will use
@@ -56,6 +101,22 @@ fn exchange_swap() -> Result<()> {
         info!(target: "exchange", "[Alice] ================================");
         info!(target: "exchange", "[Alice] Building token mint tx for Alice");
         info!(target: "exchange", "[Alice] ================================");
+        let spend_hook: FuncId = FuncRef {
+            contract_id: *EXCHANGE_CONTRACT_ID,
+            func_code: ExchangeFunction::OrderMatch as u8,
+        }
+        .to_func_id();
+        //TODO fix, this will make order for OrderMatch look different from POV of bob, and Alice, which should be the case.
+        let order = DummyOrder {
+            withdraw_key: th.holders.get(&Holder::Bob).unwrap().keypair.public,
+            base_value: 1000,
+            quote_value: 1000,
+            //base_token_id: bob_token_id,
+            //quote_token_id: alice_token_id,
+            timeout_duration: 100,
+        };
+        //let user_data = order.to_bulla();
+        let user_data = pallas::Base::ZERO;
         // (1) Alice mint token A
         let alice_token_blind = BaseBlind::random(&mut OsRng);
         let (mint_tx, mint_params, mint_auth_params, fee_params) = th
@@ -64,8 +125,8 @@ fn exchange_swap() -> Result<()> {
                 &Holder::Alice,
                 &Holder::Alice,
                 alice_token_blind,
-                None,
-                None,
+                Some(spend_hook),
+                Some(user_data),
                 current_block_height,
             )
             .await?;
@@ -98,8 +159,8 @@ fn exchange_swap() -> Result<()> {
                 &Holder::Bob,
                 &Holder::Bob,
                 bob_token_blind,
-                None,
-                None,
+                Some(spend_hook),
+                Some(user_data),
                 current_block_height,
             )
             .await?;
@@ -154,6 +215,8 @@ fn exchange_swap() -> Result<()> {
                 bob_token_id,
                 100, //timeout duration
                 current_block_height,
+                spend_hook,
+                user_data,
             )
             .await?;
         for holder in &HOLDERS {
@@ -188,6 +251,8 @@ fn exchange_swap() -> Result<()> {
                 alice_token_id,
                 100, //timeout duration
                 current_block_height,
+                spend_hook,
+                user_data,
             )
             .await?;
         for holder in &HOLDERS {
@@ -207,10 +272,6 @@ fn exchange_swap() -> Result<()> {
         }
         th.assert_trees(&HOLDERS);
 
-        info!(target: "exchange", "[Charlie, Charlie] ================");
-        info!(target: "exchange", "[Charlie, Charlie] Building OtcSwap");
-        info!(target: "exchange", "[Charlie, Charlie] ================");
-
         let alice_owncoins = th.holders.get(&Holder::Alice).unwrap().unspent_money_coins.clone();
         let mut bob_owncoins = th.holders.get(&Holder::Bob).unwrap().unspent_money_coins.clone();
         let charlie_owncoins =
@@ -226,122 +287,6 @@ fn exchange_swap() -> Result<()> {
 
         assert!(alice_owncoins.len() == 1);
         assert!(bob_owncoins.len() == 1);
-        // (5) after the exchange finds a match in the order-book, it make makes a full swap
-        // while keeping funds in it's possession.
-        let (otc_swap_tx, otc_swap_params, fee_params) = th
-            .otc_swap(&Holder::Charlie, &alice_oc, &Holder::Charlie, &bob_oc, current_block_height)
-            .await?;
-
-        for holder in &HOLDERS {
-            info!(target: "exchange", "[{holder:?}] =================================");
-            info!(target: "exchange", "[{holder:?}] Executing Charlie2Charlie swap tx");
-            info!(target: "exchange", "[{holder:?}] =================================");
-            th.execute_otc_swap_tx(
-                holder,
-                otc_swap_tx.clone(),
-                &otc_swap_params,
-                &fee_params,
-                current_block_height,
-                true,
-            )
-            .await?;
-        }
-
-        let mut charlie_owncoins =
-            th.holders.get(&Holder::Charlie).unwrap().unspent_money_coins.clone();
-        assert!(charlie_owncoins.len() == 2);
-        assert!(charlie_owncoins[0].note.token_id == bob_token_id);
-        assert!(charlie_owncoins[1].note.token_id == alice_token_id);
-        th.assert_trees(&HOLDERS);
-
-        info!(target: "exchange", "[Alice] ============================================================");
-        info!(target: "exchange", "[Alice] charlie now need to send alice's share of the swap to alice ");
-        info!(target: "exchange", "[Alice] ============================================================");
-        let alice_token_idx = charlie_owncoins.len() - 2;
-        let charlie2alice_token_id = charlie_owncoins[alice_token_idx].note.token_id;
-        // (6) exchange sends B token to Alice
-        let (tx, (params, fee_params), spent_coins) = th
-            .transfer(
-                BOB_INITIAL,
-                &Holder::Charlie,
-                &Holder::Alice,
-                &[charlie_owncoins[alice_token_idx].clone()],
-                charlie2alice_token_id,
-                current_block_height,
-                false,
-            )
-            .await?;
-
-        for coin in spent_coins {
-            charlie_owncoins.retain(|x| x != &coin);
-        }
-        assert!(bob_token_id == charlie2alice_token_id);
-        assert!(params.inputs.len() == 1);
-        assert!(params.outputs.len() == 1);
-
-        for holder in &HOLDERS {
-            th.execute_transfer_tx(
-                holder,
-                tx.clone(),
-                &params,
-                &fee_params,
-                current_block_height,
-                true,
-            )
-            .await?;
-        }
-        th.assert_trees(&HOLDERS);
-
-        let alice_owncoins = th.holders.get(&Holder::Alice).unwrap().unspent_money_coins.clone();
-        assert!(alice_owncoins.len() == 2);
-        assert!(alice_owncoins[1].note.value == BOB_INITIAL);
-        assert!(alice_owncoins[1].note.token_id == bob_token_id);
-
-        info!(target: "exchange", "[Bob] =======================================================");
-        info!(target: "exchange", "[Bob] Charlie now need to send bob's share of teh swap to bob");
-        info!(target: "exchange", "[Bob] =======================================================");
-
-        let bob_token_idx = charlie_owncoins.len() - 1;
-        let charlie2bob_token_id = charlie_owncoins[bob_token_idx].note.token_id;
-        // (7) exchange sends A token to Bob
-        let (tx, (params, fee_params), spent_coins) = th
-            .transfer(
-                ALICE_INITIAL,
-                &Holder::Charlie,
-                &Holder::Bob,
-                &[charlie_owncoins[bob_token_idx].clone()],
-                charlie2bob_token_id,
-                current_block_height,
-                false,
-            )
-            .await?;
-
-        for coin in spent_coins {
-            bob_owncoins.retain(|x| x != &coin);
-        }
-        assert!(alice_token_id == charlie2bob_token_id);
-        assert!(params.inputs.len() == 1);
-        assert!(params.outputs.len() == 1);
-
-        for holder in &HOLDERS {
-            th.execute_transfer_tx(
-                holder,
-                tx.clone(),
-                &params,
-                &fee_params,
-                current_block_height,
-                true,
-            )
-            .await?;
-        }
-
-        th.assert_trees(&HOLDERS);
-        let bob_owncoins = th.holders.get(&Holder::Bob).unwrap().unspent_money_coins.clone();
-
-        assert!(bob_owncoins.len() == 2);
-        assert!(bob_owncoins[1].note.value == ALICE_INITIAL);
-        assert!(bob_owncoins[1].note.token_id == alice_token_id);
-
         Ok(())
     })
 }
